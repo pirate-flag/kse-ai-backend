@@ -116,7 +116,7 @@ def match_category(question, course_name):
         "سلامة": ["سلامة", "أمن", "مخاطر", "وقاية"],
         "عقود": ["عقود", "مناقصات", "إدارة العقود"],
         "طاقة": ["طاقة", "كفاءة الطاقة", "ترشيد", "استهلاك"],
-        "ميكانيكا": ["ميكانيكا", "ميكانيكية", "HVAC", "تكييف", "مضخات"]
+        "ميكانيكا": ["ميكانيكا", "ميكانيكية", "hvac", "تكييف", "مضخات"]
     }
 
     for _, keywords in categories.items():
@@ -126,48 +126,79 @@ def match_category(question, course_name):
 
     return False
 
+def broad_match(question, course_name):
+    q = normalize_text(question)
+    name = normalize_text(course_name)
+
+    q_words = set(q.split())
+    name_words = set(name.split())
+
+    overlap = len(q_words & name_words)
+
+    if q in name:
+        overlap += 10
+
+    for word in q_words:
+        if word in name:
+            overlap += 1
+
+    return overlap
+
 def filter_by_question(courses, question):
     q = normalize_text(question)
 
-    # استبعاد المنتهي أولاً
-    courses = [c for c in courses if not_expired(c)]
+    # أول شي: استبعاد المنتهي
+    valid_courses = [c for c in courses if not_expired(c)]
 
     # هذا الشهر
     if "هذا الشهر" in q or "الشهر الحالي" in q:
-        courses = filter_this_month(courses)
+        month_courses = filter_this_month(valid_courses)
+
+        if len(month_courses) >= 3:
+            return month_courses[:5]
+
+        # إذا قليل، رجع المتاح القريب أيضًا
+        extra_courses = [c for c in valid_courses if c not in month_courses]
+        return (month_courses + extra_courses)[:5]
 
     # الشهر القادم
-    elif "الشهر القادم" in q or "الشهر الجاي" in q:
-        courses = filter_next_month(courses)
+    if "الشهر القادم" in q or "الشهر الجاي" in q:
+        next_month_courses = filter_next_month(valid_courses)
 
-    # فلترة بالتخصص/النوع
-    filtered_by_cat = [c for c in courses if match_category(question, c["name"])]
+        if len(next_month_courses) >= 3:
+            return next_month_courses[:5]
+
+        extra_courses = [c for c in valid_courses if c not in next_month_courses]
+        return (next_month_courses + extra_courses)[:5]
+
+    # فلترة بالتخصص
+    filtered_by_cat = [c for c in valid_courses if match_category(question, c["name"])]
     if filtered_by_cat:
-        courses = filtered_by_cat
+        return filtered_by_cat[:5]
 
-    # إذا كتب اسم دورة مباشرة
-    else:
-        q_words = set(q.split())
-        scored = []
-        for c in courses:
-            name_norm = normalize_text(c["name"])
-            overlap = len(q_words & set(name_norm.split()))
-            if q in name_norm:
-                overlap += 10
-            scored.append((overlap, c))
-        scored.sort(key=lambda x: x[0], reverse=True)
+    # فلترة باسم دورة أو كلمات قريبة
+    scored = []
+    for c in valid_courses:
+        score = broad_match(question, c["name"])
+        scored.append((score, c))
 
-        if scored and scored[0][0] > 0:
-            top_score = scored[0][0]
-            courses = [c for s, c in scored if s > 0 and s >= max(1, top_score - 1)][:5]
+    scored.sort(key=lambda x: x[0], reverse=True)
 
-    return courses
+    strong_matches = [c for s, c in scored if s > 0][:5]
+    if strong_matches:
+        return strong_matches
+
+    # fallback: إذا ما لقى شي، رجع أول 5 دورات غير منتهية
+    return valid_courses[:5]
 
 def courses_to_context(courses):
     lines = []
     for c in courses[:10]:
+        start_str = c["start_date"].strftime("%Y-%m-%d") if c["start_date"] else "غير محدد"
+        end_str = c["end_date"].strftime("%Y-%m-%d") if c["end_date"] else "غير محدد"
+
         lines.append(
-            f"اسم الدورة: {c['name']} | يبدأ في: {c['start_date']} | ينتهي في: {c['end_date']} | "
+            f"اسم الدورة: {c['name']} | يبدأ في: {start_str} | ينتهي في: {end_str} | "
             f"التكلفة للمتدرب: {c['price']} | وقت الدورة: {c['period']} | الفترة: {c['session']}"
         )
     return "\n\n".join(lines)
@@ -195,10 +226,12 @@ def chat():
 - اعتمد فقط على السياق.
 - لا تعرض أي دورة منتهية.
 - إذا كان السؤال عن هذا الشهر أو الشهر القادم، اعرض قائمة الدورات المناسبة فقط.
+- إذا كانت النتائج قليلة لهذا الشهر أو للشهر القادم، اعرض أيضًا أقرب دورات متاحة غير منتهية.
 - إذا كان السؤال عن تخصص مثل كهرباء أو مباني أو طاقة، اعرض الدورات المتعلقة بهذا التخصص فقط.
 - إذا كانت النتيجة أكثر من دورة، اعرضها كقائمة مرتبة وواضحة.
 - إذا سأل عن الموقع الرسمي فاذكر: https://www.kse.org.kw
 - جاوب بالعربية وباختصار ووضوح.
+- لا تستخدم تنسيق markdown مثل ** أو ##.
 
 السؤال:
 {question}
