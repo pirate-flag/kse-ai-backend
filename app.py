@@ -3,6 +3,7 @@ from flask_cors import CORS
 from openai import OpenAI
 import os
 import re
+from datetime import datetime
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import FakeEmbeddings
@@ -12,7 +13,6 @@ CORS(app)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# مهم: FakeEmbeddings فقط لتحميل FAISS بدون تحميل موديل ثقيل
 embeddings = FakeEmbeddings(size=384)
 
 db = FAISS.load_local(
@@ -31,39 +31,146 @@ def normalize_text(text):
     text = re.sub(r"\s+", " ", text)
     return text
 
-def get_documents():
-    docs = []
+def parse_course(doc_text):
+    data = {}
+
+    parts = doc_text.split(" | ")
+    for part in parts:
+        if ":" in part:
+            key, value = part.split(":", 1)
+            data[key.strip()] = value.strip()
+
+    course_name = data.get("اسم الدورة", "")
+    start_raw = data.get("يبدأ في", "")
+    end_raw = data.get("ينتهي في", "")
+    price = data.get("التكلفة للمتدرب", "")
+    period = data.get("وقت الدورة", "")
+    session = data.get("الفترة", "")
+
+    start_date = None
+    end_date = None
+
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            if start_raw and not start_date:
+                start_date = datetime.strptime(start_raw, fmt)
+        except:
+            pass
+        try:
+            if end_raw and not end_date:
+                end_date = datetime.strptime(end_raw, fmt)
+        except:
+            pass
+
+    return {
+        "name": course_name,
+        "start_date": start_date,
+        "end_date": end_date,
+        "price": price,
+        "period": period,
+        "session": session,
+        "raw": doc_text
+    }
+
+def get_all_courses():
+    courses = []
     for _, doc in db.docstore._dict.items():
-        docs.append(doc.page_content)
-    return docs
+        courses.append(parse_course(doc.page_content))
+    return courses
 
-def lexical_search(question, k=5):
-    question_norm = normalize_text(question)
-    q_words = set(question_norm.split())
+def not_expired(course):
+    today = datetime.today()
+    if course["end_date"]:
+        return course["end_date"].date() >= today.date()
+    if course["start_date"]:
+        return course["start_date"].date() >= today.date()
+    return True
 
-    scored = []
-    for doc in get_documents():
-        doc_norm = normalize_text(doc)
-        doc_words = set(doc_norm.split())
+def filter_this_month(courses):
+    today = datetime.today()
+    return [
+        c for c in courses
+        if c["start_date"] and c["start_date"].year == today.year and c["start_date"].month == today.month
+    ]
 
-        overlap = len(q_words & doc_words)
-        bonus = 0
+def filter_next_month(courses):
+    today = datetime.today()
+    year = today.year
+    month = today.month + 1
+    if month == 13:
+        month = 1
+        year += 1
 
-        # بونص إذا السؤال بالكامل أو جزء كبير منه موجود بالنص
-        if question_norm in doc_norm:
-            bonus += 10
+    return [
+        c for c in courses
+        if c["start_date"] and c["start_date"].year == year and c["start_date"].month == month
+    ]
 
-        # بونص بسيط لبعض الكلمات المهمة
-        for word in q_words:
-            if word in doc_norm:
-                bonus += 1
+def match_category(question, course_name):
+    q = normalize_text(question)
+    name = normalize_text(course_name)
 
-        score = overlap + bonus
-        scored.append((score, doc))
+    categories = {
+        "كهرباء": ["كهرباء", "كهربائية", "الطاقة", "قدرة", "محولات", "مولدات"],
+        "مباني": ["مباني", "إنشائية", "خرسانة", "هندسة مدنية", "مدني", "بناء"],
+        "سلامة": ["سلامة", "أمن", "مخاطر", "وقاية"],
+        "عقود": ["عقود", "مناقصات", "إدارة العقود"],
+        "طاقة": ["طاقة", "كفاءة الطاقة", "ترشيد", "استهلاك"],
+        "ميكانيكا": ["ميكانيكا", "ميكانيكية", "HVAC", "تكييف", "مضخات"]
+    }
 
-    scored.sort(key=lambda x: x[0], reverse=True)
-    top_docs = [doc for score, doc in scored if score > 0][:k]
-    return top_docs
+    for _, keywords in categories.items():
+        for kw in keywords:
+            if kw in q and kw in name:
+                return True
+
+    return False
+
+def filter_by_question(courses, question):
+    q = normalize_text(question)
+
+    # استبعاد المنتهي أولاً
+    courses = [c for c in courses if not_expired(c)]
+
+    # هذا الشهر
+    if "هذا الشهر" in q or "الشهر الحالي" in q:
+        courses = filter_this_month(courses)
+
+    # الشهر القادم
+    elif "الشهر القادم" in q or "الشهر الجاي" in q:
+        courses = filter_next_month(courses)
+
+    # فلترة بالتخصص/النوع
+    filtered_by_cat = [c for c in courses if match_category(question, c["name"])]
+    if filtered_by_cat:
+        courses = filtered_by_cat
+
+    # إذا كتب اسم دورة مباشرة
+    else:
+        q_words = set(q.split())
+        scored = []
+        for c in courses:
+            name_norm = normalize_text(c["name"])
+            overlap = len(q_words & set(name_norm.split()))
+            if q in name_norm:
+                overlap += 10
+            scored.append((overlap, c))
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        if scored and scored[0][0] > 0:
+            top_score = scored[0][0]
+            courses = [c for s, c in scored if s > 0 and s >= max(1, top_score - 1)][:5]
+
+    return courses
+
+def courses_to_context(courses):
+    lines = []
+    for c in courses[:10]:
+        lines.append(
+            f"اسم الدورة: {c['name']} | يبدأ في: {c['start_date']} | ينتهي في: {c['end_date']} | "
+            f"التكلفة للمتدرب: {c['price']} | وقت الدورة: {c['period']} | الفترة: {c['session']}"
+        )
+    return "\n\n".join(lines)
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -73,21 +180,25 @@ def chat():
     if not question:
         return jsonify({"reply": "ما وصلني سؤال."}), 400
 
-    results = lexical_search(question, k=5)
+    all_courses = get_all_courses()
+    matched_courses = filter_by_question(all_courses, question)
 
-    if not results:
-        return jsonify({"reply": "ما لقيت معلومات كافية."})
+    if not matched_courses:
+        return jsonify({"reply": "ما لقيت دورات مناسبة حسب طلبك أو كل الدورات المطابقة منتهية."})
 
-    context = "\n\n".join(results)
+    context = courses_to_context(matched_courses)
 
     prompt = f"""
 أنت مساعد ذكي لجمعية المهندسين الكويتية.
 
-اعتمد فقط على المعلومات الموجودة في السياق.
-إذا وجدت الدورة أو معلومات قريبة جدًا من السؤال، فأجب مباشرة.
-لا تقل لا توجد بيانات إلا إذا لم يظهر شيء متعلق بالسؤال في السياق.
-إذا سأل عن الموقع الرسمي فاذكر: https://www.kse.org.kw
-جاوب باختصار وبشكل واضح.
+تعليمات مهمة:
+- اعتمد فقط على السياق.
+- لا تعرض أي دورة منتهية.
+- إذا كان السؤال عن هذا الشهر أو الشهر القادم، اعرض قائمة الدورات المناسبة فقط.
+- إذا كان السؤال عن تخصص مثل كهرباء أو مباني أو طاقة، اعرض الدورات المتعلقة بهذا التخصص فقط.
+- إذا كانت النتيجة أكثر من دورة، اعرضها كقائمة مرتبة وواضحة.
+- إذا سأل عن الموقع الرسمي فاذكر: https://www.kse.org.kw
+- جاوب بالعربية وباختصار ووضوح.
 
 السؤال:
 {question}
