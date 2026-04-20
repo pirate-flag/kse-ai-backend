@@ -147,36 +147,26 @@ def broad_match(question, course_name):
 def filter_by_question(courses, question):
     q = normalize_text(question)
 
-    # أول شي: استبعاد المنتهي
     valid_courses = [c for c in courses if not_expired(c)]
 
-    # هذا الشهر
     if "هذا الشهر" in q or "الشهر الحالي" in q:
         month_courses = filter_this_month(valid_courses)
-
         if len(month_courses) >= 3:
             return month_courses[:5]
-
-        # إذا قليل، رجع المتاح القريب أيضًا
         extra_courses = [c for c in valid_courses if c not in month_courses]
         return (month_courses + extra_courses)[:5]
 
-    # الشهر القادم
     if "الشهر القادم" in q or "الشهر الجاي" in q:
         next_month_courses = filter_next_month(valid_courses)
-
         if len(next_month_courses) >= 3:
             return next_month_courses[:5]
-
         extra_courses = [c for c in valid_courses if c not in next_month_courses]
         return (next_month_courses + extra_courses)[:5]
 
-    # فلترة بالتخصص
     filtered_by_cat = [c for c in valid_courses if match_category(question, c["name"])]
     if filtered_by_cat:
         return filtered_by_cat[:5]
 
-    # فلترة باسم دورة أو كلمات قريبة
     scored = []
     for c in valid_courses:
         score = broad_match(question, c["name"])
@@ -188,20 +178,26 @@ def filter_by_question(courses, question):
     if strong_matches:
         return strong_matches
 
-    # fallback: إذا ما لقى شي، رجع أول 5 دورات غير منتهية
     return valid_courses[:5]
 
-def courses_to_context(courses):
-    lines = []
-    for c in courses[:10]:
-        start_str = c["start_date"].strftime("%Y-%m-%d") if c["start_date"] else "غير محدد"
-        end_str = c["end_date"].strftime("%Y-%m-%d") if c["end_date"] else "غير محدد"
+def format_course_line(course):
+    start_str = course["start_date"].strftime("%Y-%m-%d") if course["start_date"] else "غير محدد"
+    end_str = course["end_date"].strftime("%Y-%m-%d") if course["end_date"] else "غير محدد"
+    price_str = course["price"] if course["price"] else "غير محدد"
+    period_str = course["period"] if course["period"] else "غير محدد"
+    session_str = course["session"] if course["session"] else "غير محدد"
 
-        lines.append(
-            f"اسم الدورة: {c['name']} | يبدأ في: {start_str} | ينتهي في: {end_str} | "
-            f"التكلفة للمتدرب: {c['price']} | وقت الدورة: {c['period']} | الفترة: {c['session']}"
-        )
-    return "\n\n".join(lines)
+    return (
+        f"اسم الدورة: {course['name']} | "
+        f"يبدأ في: {start_str} | "
+        f"ينتهي في: {end_str} | "
+        f"التكلفة للمتدرب: {price_str} | "
+        f"وقت الدورة: {period_str} | "
+        f"الفترة: {session_str}"
+    )
+
+def courses_to_context(courses):
+    return "\n\n".join([format_course_line(c) for c in courses[:10]])
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -222,16 +218,25 @@ def chat():
     prompt = f"""
 أنت مساعد ذكي لجمعية المهندسين الكويتية.
 
-تعليمات مهمة:
+تعليمات مهمة جدًا:
 - اعتمد فقط على السياق.
 - لا تعرض أي دورة منتهية.
 - إذا كان السؤال عن هذا الشهر أو الشهر القادم، اعرض قائمة الدورات المناسبة فقط.
-- إذا كانت النتائج قليلة لهذا الشهر أو للشهر القادم، اعرض أيضًا أقرب دورات متاحة غير منتهية.
+- إذا كانت النتائج قليلة، اعرض أقرب دورات متاحة غير منتهية.
 - إذا كان السؤال عن تخصص مثل كهرباء أو مباني أو طاقة، اعرض الدورات المتعلقة بهذا التخصص فقط.
-- إذا كانت النتيجة أكثر من دورة، اعرضها كقائمة مرتبة وواضحة.
+- إذا كانت النتيجة أكثر من دورة، اعرضها بشكل مرتب وواضح.
+- استخدم هذا التنسيق دائمًا لكل دورة:
+📚 اسم الدورة: ...
+📅 تاريخ البداية: ...
+📅 تاريخ النهاية: ...
+🕒 الوقت: ...
+💰 السعر: ...
+
+- اترك سطر فارغ بين كل دورة والثانية.
+- إذا كانت دورة واحدة فقط، اعرضها بنفس الشكل لكن بدون مقدمة طويلة.
 - إذا سأل عن الموقع الرسمي فاذكر: https://www.kse.org.kw
 - جاوب بالعربية وباختصار ووضوح.
-- لا تستخدم تنسيق markdown مثل ** أو ##.
+- لا تستخدم markdown مثل ** أو ##.
 
 السؤال:
 {question}
