@@ -21,6 +21,14 @@ db = FAISS.load_local(
     allow_dangerous_deserialization=True
 )
 
+settings = {
+    "whatsapp": "",
+    "register": "",
+    "welcome": "أهلاً فيك 👋",
+    "questions": "",
+    "courses": ""
+}
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -32,6 +40,22 @@ def admin():
 @app.route("/health")
 def health():
     return "Backend is running"
+
+@app.route("/save-settings", methods=["POST"])
+def save_settings():
+    data = request.get_json()
+
+    settings["whatsapp"] = data.get("whatsapp", "")
+    settings["register"] = data.get("register", "")
+    settings["welcome"] = data.get("welcome", "أهلاً فيك 👋")
+    settings["questions"] = data.get("questions", "")
+    settings["courses"] = data.get("courses", "")
+
+    return jsonify({"status": "saved"})
+
+@app.route("/get-settings", methods=["GET"])
+def get_settings():
+    return jsonify(settings)
 
 def normalize_text(text):
     text = str(text).strip().lower()
