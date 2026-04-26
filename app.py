@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from openai import OpenAI
 import os
@@ -8,7 +8,7 @@ from datetime import datetime
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import FakeEmbeddings
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates")
 CORS(app)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -23,6 +23,14 @@ db = FAISS.load_local(
 
 @app.route("/")
 def home():
+    return render_template("index.html")
+
+@app.route("/admin")
+def admin():
+    return render_template("admin.html")
+
+@app.route("/health")
+def health():
     return "Backend is running"
 
 def normalize_text(text):
@@ -56,6 +64,7 @@ def parse_course(doc_text):
                 start_date = datetime.strptime(start_raw, fmt)
         except:
             pass
+
         try:
             if end_raw and not end_date:
                 end_date = datetime.strptime(end_raw, fmt)
@@ -80,30 +89,38 @@ def get_all_courses():
 
 def not_expired(course):
     today = datetime.today()
+
     if course["end_date"]:
         return course["end_date"].date() >= today.date()
+
     if course["start_date"]:
         return course["start_date"].date() >= today.date()
+
     return True
 
 def filter_this_month(courses):
     today = datetime.today()
     return [
         c for c in courses
-        if c["start_date"] and c["start_date"].year == today.year and c["start_date"].month == today.month
+        if c["start_date"]
+        and c["start_date"].year == today.year
+        and c["start_date"].month == today.month
     ]
 
 def filter_next_month(courses):
     today = datetime.today()
     year = today.year
     month = today.month + 1
+
     if month == 13:
         month = 1
         year += 1
 
     return [
         c for c in courses
-        if c["start_date"] and c["start_date"].year == year and c["start_date"].month == month
+        if c["start_date"]
+        and c["start_date"].year == year
+        and c["start_date"].month == month
     ]
 
 def match_category(question, course_name):
@@ -146,28 +163,33 @@ def broad_match(question, course_name):
 
 def filter_by_question(courses, question):
     q = normalize_text(question)
-
     valid_courses = [c for c in courses if not_expired(c)]
 
     if "هذا الشهر" in q or "الشهر الحالي" in q:
         month_courses = filter_this_month(valid_courses)
+
         if len(month_courses) >= 3:
             return month_courses[:5]
+
         extra_courses = [c for c in valid_courses if c not in month_courses]
         return (month_courses + extra_courses)[:5]
 
     if "الشهر القادم" in q or "الشهر الجاي" in q:
         next_month_courses = filter_next_month(valid_courses)
+
         if len(next_month_courses) >= 3:
             return next_month_courses[:5]
+
         extra_courses = [c for c in valid_courses if c not in next_month_courses]
         return (next_month_courses + extra_courses)[:5]
 
     filtered_by_cat = [c for c in valid_courses if match_category(question, c["name"])]
+
     if filtered_by_cat:
         return filtered_by_cat[:5]
 
     scored = []
+
     for c in valid_courses:
         score = broad_match(question, c["name"])
         scored.append((score, c))
@@ -175,6 +197,7 @@ def filter_by_question(courses, question):
     scored.sort(key=lambda x: x[0], reverse=True)
 
     strong_matches = [c for s, c in scored if s > 0][:5]
+
     if strong_matches:
         return strong_matches
 
@@ -211,7 +234,9 @@ def chat():
     matched_courses = filter_by_question(all_courses, question)
 
     if not matched_courses:
-        return jsonify({"reply": "ما لقيت دورات مناسبة حسب طلبك أو كل الدورات المطابقة منتهية."})
+        return jsonify({
+            "reply": "ما لقيت دورات مناسبة حسب طلبك أو كل الدورات المطابقة منتهية."
+        })
 
     context = courses_to_context(matched_courses)
 
