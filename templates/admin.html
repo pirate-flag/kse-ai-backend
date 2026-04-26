@@ -120,22 +120,35 @@
             }
         }
 
-        function saveSettings() {
-            localStorage.setItem("whatsapp", document.getElementById("whatsapp").value);
-            localStorage.setItem("register", document.getElementById("register").value);
-            localStorage.setItem("welcome", document.getElementById("welcome").value);
-            localStorage.setItem("questions", document.getElementById("questions").value);
-            localStorage.setItem("courses", document.getElementById("courses").value);
+        async function saveSettings() {
+            const data = {
+                whatsapp: document.getElementById("whatsapp").value,
+                register: document.getElementById("register").value,
+                welcome: document.getElementById("welcome").value,
+                questions: document.getElementById("questions").value,
+                courses: document.getElementById("courses").value
+            };
 
-            alert("تم الحفظ");
+            await fetch("/save-settings", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(data)
+            });
+
+            alert("تم الحفظ في السيرفر ✅");
         }
 
-        function loadSettings() {
-            document.getElementById("whatsapp").value = localStorage.getItem("whatsapp") || "";
-            document.getElementById("register").value = localStorage.getItem("register") || "";
-            document.getElementById("welcome").value = localStorage.getItem("welcome") || "";
-            document.getElementById("questions").value = localStorage.getItem("questions") || "";
-            document.getElementById("courses").value = localStorage.getItem("courses") || "";
+        async function loadSettings() {
+            const res = await fetch("/get-settings");
+            const data = await res.json();
+
+            document.getElementById("whatsapp").value = data.whatsapp || "";
+            document.getElementById("register").value = data.register || "";
+            document.getElementById("welcome").value = data.welcome || "";
+            document.getElementById("questions").value = data.questions || "";
+            document.getElementById("courses").value = data.courses || "";
         }
 
         document.getElementById("excelFile").addEventListener("change", handleFile);
