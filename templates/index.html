@@ -156,9 +156,15 @@
         const input = document.getElementById("q");
         let appSettings = {};
 
+        let client_id = window.location.pathname.split("/").pop();
+
+        if (!client_id || client_id === "" || client_id === "client") {
+            client_id = "kse";
+        }
+
         async function loadSettings() {
             try {
-                const res = await fetch("/get-settings");
+                const res = await fetch(`/get-settings/${client_id}`);
                 appSettings = await res.json();
             } catch (error) {
                 appSettings = {
@@ -186,7 +192,7 @@
             addMessage("جاري البحث...", "bot");
 
             try {
-                const res = await fetch("/chat", {
+                const res = await fetch(`/chat/${client_id}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ message: q })
