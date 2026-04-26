@@ -53,6 +53,7 @@
             padding: 14px 16px;
             border-radius: 16px;
             white-space: pre-wrap;
+            line-height: 1.8;
         }
 
         .user {
@@ -153,6 +154,19 @@
     <script>
         const chatBox = document.getElementById("chatBox");
         const input = document.getElementById("q");
+        let appSettings = {};
+
+        async function loadSettings() {
+            try {
+                const res = await fetch("/get-settings");
+                appSettings = await res.json();
+            } catch (error) {
+                appSettings = {
+                    welcome: "أهلاً فيك 👋",
+                    questions: ""
+                };
+            }
+        }
 
         function addMessage(text, type) {
             const div = document.createElement("div");
@@ -192,7 +206,7 @@
 
         function clearChat() {
             chatBox.innerHTML = "";
-            addMessage("أهلاً فيك 👋", "bot");
+            addMessage(appSettings.welcome || "أهلاً فيك 👋", "bot");
         }
 
         function showStats() {
@@ -201,19 +215,39 @@
 
         function loadQuickQuestions() {
             const container = document.getElementById("quickQuestions");
-            const defaults = ["شنو الدورات هذا الشهر؟", "دورات الكهرباء", "دورات المباني"];
+            container.innerHTML = "";
 
-            defaults.forEach(q => {
+            const data = appSettings.questions;
+
+            const questions = data && data.trim()
+                ? data.split("\n").filter(q => q.trim())
+                : ["شنو الدورات هذا الشهر؟", "دورات الكهرباء", "دورات المباني"];
+
+            questions.forEach(q => {
                 const btn = document.createElement("button");
                 btn.className = "quick-btn";
-                btn.textContent = q;
-                btn.onclick = () => input.value = q;
+                btn.textContent = q.trim();
+                btn.onclick = () => {
+                    input.value = q.trim();
+                    input.focus();
+                };
                 container.appendChild(btn);
             });
         }
 
-        loadQuickQuestions();
-        clearChat();
+        input.addEventListener("keydown", function (event) {
+            if (event.key === "Enter") {
+                ask();
+            }
+        });
+
+        async function startApp() {
+            await loadSettings();
+            loadQuickQuestions();
+            clearChat();
+        }
+
+        startApp();
     </script>
 
 </body>
