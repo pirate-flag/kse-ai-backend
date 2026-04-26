@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Panel</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #f4f7fb;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .box {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            width: 420px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            margin-bottom: 12px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-family: Arial;
+        }
+
+        textarea {
+            height: 110px;
+            resize: vertical;
+        }
+
+        #courses {
+            height: 160px;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 15px;
+            padding: 10px;
+            border: none;
+            background: #2563eb;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="box" id="loginBox">
+        <h3>تسجيل الدخول</h3>
+        <input id="user" placeholder="username">
+        <input id="pass" type="password" placeholder="password">
+        <button onclick="login()">دخول</button>
+    </div>
+
+    <div class="box hidden" id="adminBox">
+        <h3>لوحة التحكم</h3>
+
+        <label>رابط واتساب</label>
+        <input id="whatsapp" placeholder="https://wa.me/96599553161">
+
+        <label>رابط التسجيل</label>
+        <input id="register" placeholder="https://www.kse.org.kw">
+
+        <label>رسالة الترحيب</label>
+        <input id="welcome" placeholder="أهلاً فيك 👋">
+
+        <label>الأسئلة السريعة / كل سؤال بسطر</label>
+        <textarea id="questions" placeholder="شنو الدورات هذا الشهر؟
+دورات الكهرباء
+دورات المباني"></textarea>
+
+        <label>رفع ملف Excel</label>
+        <input type="file" id="excelFile" accept=".xlsx,.xls">
+
+        <label>الدورات / كل دورة تبدأ بـ 📚</label>
+        <textarea id="courses" placeholder="📚 دورة الكهرباء
+المدة: 5 أيام
+المكان: جمعية المهندسين الكويتية
+
+📚 دورة المباني
+المدة: 3 أيام
+المكان: جمعية المهندسين الكويتية"></textarea>
+
+        <button onclick="saveSettings()">حفظ</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <script>
+        const USERNAME = "admin";
+        const PASSWORD = "1234";
+
+        function login() {
+            const u = document.getElementById("user").value;
+            const p = document.getElementById("pass").value;
+
+            if (u === USERNAME && p === PASSWORD) {
+                document.getElementById("loginBox").classList.add("hidden");
+                document.getElementById("adminBox").classList.remove("hidden");
+                loadSettings();
+            } else {
+                alert("بيانات غلط");
+            }
+        }
+
+        function saveSettings() {
+            localStorage.setItem("whatsapp", document.getElementById("whatsapp").value);
+            localStorage.setItem("register", document.getElementById("register").value);
+            localStorage.setItem("welcome", document.getElementById("welcome").value);
+            localStorage.setItem("questions", document.getElementById("questions").value);
+            localStorage.setItem("courses", document.getElementById("courses").value);
+
+            alert("تم الحفظ");
+        }
+
+        function loadSettings() {
+            document.getElementById("whatsapp").value = localStorage.getItem("whatsapp") || "";
+            document.getElementById("register").value = localStorage.getItem("register") || "";
+            document.getElementById("welcome").value = localStorage.getItem("welcome") || "";
+            document.getElementById("questions").value = localStorage.getItem("questions") || "";
+            document.getElementById("courses").value = localStorage.getItem("courses") || "";
+        }
+
+        document.getElementById("excelFile").addEventListener("change", handleFile);
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+
+            reader.onload = function (event) {
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, { type: "array" });
+
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(sheet);
+
+                let result = "";
+
+                json.forEach(row => {
+                    result += "📚 " + (row["اسم الدورة"] || "دورة") + "\n";
+                    result += "يبدأ في: " + (row["يبدأ في"] || "") + "\n";
+                    result += "ينتهي في: " + (row["ينتهي في"] || "") + "\n";
+                    result += "التكلفة: " + (row["التلكلفة للمتدرب"] || "") + "\n";
+                    result += "الوقت: " + (row["وقت الدورة  الفترة الصباحية"] || "") + "\n";
+                    result += "عدد المسجلين: " + (row["عدد المسجلين"] || "") + "\n\n";
+                });
+
+                document.getElementById("courses").value = result;
+            };
+
+            reader.readAsArrayBuffer(file);
+        }
+    </script>
+
+</body>
+
+</html>
