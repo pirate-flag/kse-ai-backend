@@ -1,14 +1,16 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session
 from flask_cors import CORS
 from openai import OpenAI
 import os
 import re
+import hmac
 from datetime import datetime
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import FakeEmbeddings
 
 app = Flask(__name__, template_folder="templates")
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-key-in-production")
 CORS(app)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -21,29 +23,122 @@ db = FAISS.load_local(
     allow_dangerous_deserialization=True
 )
 
-settings = {
-    "whatsapp": "",
-    "register": "",
-    "welcome": "أهلاً فيك 👋",
-    "questions": "",
-    "courses": ""
+# بيانات دخول كل عميل
+clients_users = {
+    "kse": {
+        "username": "admin",
+        "password": "1234"
+    }
 }
+
+# إعدادات كل عميل
+clients_settings = {
+    "kse": {
+        "whatsapp": "",
+        "register": "",
+        "welcome": "أهلاً فيك 👋",
+        "questions": "",
+        "courses": ""
+    }
+}
+
+def get_client_settings(client_id):
+    if client_id not in clients_settings:
+        clients_settings[client_id] = {
+            "whatsapp": "",
+            "register": "",
+            "welcome": "أهلاً فيك 👋",
+            "questions": "",
+            "courses": ""
+        }
+    return clients_settings[client_id]
+
+def get_client_user(client_id):
+    if client_id not in clients_users:
+        clients_users[client_id] = {
+            "username": "admin",
+            "password": "1234"
+        }
+    return clients_users[client_id]
+
+def is_client_logged_in(client_id):
+    return session.get(f"admin_logged_in_{client_id}") is True
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+    return render_template("index.html", client_id="kse")
 
 @app.route("/admin")
-def admin():
-    return render_template("admin.html")
+def admin_default():
+    return render_template("admin.html", client_id="kse")
+
+@app.route("/client/<client_id>")
+def client_page(client_id):
+    return render_template("index.html", client_id=client_id)
+
+@app.route("/admin/<client_id>")
+def admin_page(client_id):
+    return render_template("admin.html", client_id=client_id)
 
 @app.route("/health")
 def health():
     return "Backend is running"
 
-@app.route("/save-settings", methods=["POST"])
-def save_settings():
-    data = request.get_json()
+@app.route("/login/<client_id>", methods=["POST"])
+def login(client_id):
+    data = request.get_json() or {}
+
+    username = str(data.get("username", "")).strip()
+    password = str(data.get("password", "")).strip()
+
+    client_user = get_client_user(client_id)
+
+    username_ok = hmac.compare_digest(username, client_user["username"])
+    password_ok = hmac.compare_digest(password, client_user["password"])
+
+    if username_ok and password_ok:
+        session[f"admin_logged_in_{client_id}"] = True
+        session[f"admin_client_id_{client_id}"] = client_id
+
+        return jsonify({
+            "status": "success",
+            "message": "تم تسجيل الدخول بنجاح",
+            "client_id": client_id
+        })
+
+    return jsonify({
+        "status": "error",
+        "message": "بيانات الدخول غير صحيحة"
+    }), 401
+
+@app.route("/logout/<client_id>", methods=["POST"])
+def logout(client_id):
+    session.pop(f"admin_logged_in_{client_id}", None)
+    session.pop(f"admin_client_id_{client_id}", None)
+
+    return jsonify({
+        "status": "success",
+        "message": "تم تسجيل الخروج",
+        "client_id": client_id
+    })
+
+@app.route("/auth-status/<client_id>", methods=["GET"])
+def auth_status(client_id):
+    return jsonify({
+        "logged_in": is_client_logged_in(client_id),
+        "client_id": client_id
+    })
+
+@app.route("/save-settings/<client_id>", methods=["POST"])
+def save_settings(client_id):
+    if not is_client_logged_in(client_id):
+        return jsonify({
+            "status": "error",
+            "message": "غير مصرح. يرجى تسجيل الدخول أولاً."
+        }), 401
+
+    data = request.get_json() or {}
+    settings = get_client_settings(client_id)
 
     settings["whatsapp"] = data.get("whatsapp", "")
     settings["register"] = data.get("register", "")
@@ -51,11 +146,19 @@ def save_settings():
     settings["questions"] = data.get("questions", "")
     settings["courses"] = data.get("courses", "")
 
-    return jsonify({"status": "saved"})
+    return jsonify({"status": "saved", "client_id": client_id})
+
+@app.route("/get-settings/<client_id>", methods=["GET"])
+def get_settings(client_id):
+    return jsonify(get_client_settings(client_id))
+
+@app.route("/save-settings", methods=["POST"])
+def save_settings_default():
+    return save_settings("kse")
 
 @app.route("/get-settings", methods=["GET"])
-def get_settings():
-    return jsonify(settings)
+def get_settings_default():
+    return get_settings("kse")
 
 def normalize_text(text):
     text = str(text).strip().lower()
@@ -247,7 +350,11 @@ def courses_to_context(courses):
     return "\n\n".join([format_course_line(c) for c in courses[:10]])
 
 @app.route("/chat", methods=["POST"])
-def chat():
+def chat_default():
+    return chat("kse")
+
+@app.route("/chat/<client_id>", methods=["POST"])
+def chat(client_id):
     data = request.get_json()
     question = data.get("message", "").strip()
 
