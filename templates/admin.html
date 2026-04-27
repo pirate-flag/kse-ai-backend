@@ -54,8 +54,32 @@
             cursor: pointer;
         }
 
+        .logout-btn {
+            background: #ef4444;
+        }
+
         .hidden {
             display: none;
+        }
+
+        .message {
+            margin-top: 12px;
+            padding: 10px;
+            border-radius: 8px;
+            display: none;
+            font-size: 14px;
+        }
+
+        .message.error {
+            display: block;
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .message.success {
+            display: block;
+            background: #dcfce7;
+            color: #166534;
         }
     </style>
 </head>
@@ -67,6 +91,7 @@
         <input id="user" placeholder="username">
         <input id="pass" type="password" placeholder="password">
         <button onclick="login()">دخول</button>
+        <div id="loginMessage" class="message"></div>
     </div>
 
     <div class="box hidden" id="adminBox">
@@ -99,25 +124,110 @@
 المكان: جمعية المهندسين الكويتية"></textarea>
 
         <button onclick="saveSettings()">حفظ</button>
+        <button class="logout-btn" onclick="logout()">تسجيل خروج</button>
+        <div id="adminMessage" class="message"></div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <script>
-        const USERNAME = "admin";
-        const PASSWORD = "1234";
+        let client_id = window.location.pathname.split("/").pop();
 
-        function login() {
-            const u = document.getElementById("user").value;
-            const p = document.getElementById("pass").value;
+        if (!client_id || client_id === "admin") {
+            client_id = "kse";
+        }
 
-            if (u === USERNAME && p === PASSWORD) {
-                document.getElementById("loginBox").classList.add("hidden");
-                document.getElementById("adminBox").classList.remove("hidden");
-                loadSettings();
-            } else {
-                alert("بيانات غلط");
+        function showLoginMessage(text, type) {
+            const box = document.getElementById("loginMessage");
+            box.textContent = text;
+            box.className = "message " + type;
+        }
+
+        function showAdminMessage(text, type) {
+            const box = document.getElementById("adminMessage");
+            box.textContent = text;
+            box.className = "message " + type;
+        }
+
+        function showLoginBox() {
+            document.getElementById("loginBox").classList.remove("hidden");
+            document.getElementById("adminBox").classList.add("hidden");
+        }
+
+        function showAdminBox() {
+            document.getElementById("loginBox").classList.add("hidden");
+            document.getElementById("adminBox").classList.remove("hidden");
+        }
+
+        async function checkAuthStatus() {
+            try {
+                const res = await fetch(`/auth-status/${client_id}`, {
+                    method: "GET",
+                    credentials: "same-origin"
+                });
+
+                const data = await res.json();
+
+                if (data.logged_in) {
+                    showAdminBox();
+                    loadSettings();
+                } else {
+                    showLoginBox();
+                }
+            } catch (error) {
+                showLoginBox();
             }
+        }
+
+        async function login() {
+            const u = document.getElementById("user").value.trim();
+            const p = document.getElementById("pass").value.trim();
+
+            if (!u || !p) {
+                showLoginMessage("اكتب اسم المستخدم وكلمة المرور", "error");
+                return;
+            }
+
+            try {
+                const res = await fetch(`/login/${client_id}`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    credentials: "same-origin",
+                    body: JSON.stringify({
+                        username: u,
+                        password: p
+                    })
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data.status === "success") {
+                    showLoginMessage("", "success");
+                    showAdminBox();
+                    loadSettings();
+                } else {
+                    showLoginMessage(data.message || "بيانات غلط", "error");
+                }
+            } catch (error) {
+                showLoginMessage("صار خطأ بالاتصال", "error");
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch(`/logout/${client_id}`, {
+                    method: "POST",
+                    credentials: "same-origin"
+                });
+            } catch (error) {
+            }
+
+            document.getElementById("user").value = "";
+            document.getElementById("pass").value = "";
+            showLoginBox();
+            showLoginMessage("تم تسجيل الخروج", "success");
         }
 
         async function saveSettings() {
@@ -129,26 +239,49 @@
                 courses: document.getElementById("courses").value
             };
 
-            await fetch("/save-settings", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify(data)
-            });
+            try {
+                const res = await fetch(`/save-settings/${client_id}`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    credentials: "same-origin",
+                    body: JSON.stringify(data)
+                });
 
-            alert("تم الحفظ في السيرفر ✅");
+                const result = await res.json();
+
+                if (res.ok) {
+                    showAdminMessage("تم الحفظ لهذا العميل ✅", "success");
+                } else {
+                    showAdminMessage(result.message || "غير مصرح", "error");
+
+                    if (res.status === 401) {
+                        showLoginBox();
+                    }
+                }
+            } catch (error) {
+                showAdminMessage("صار خطأ أثناء الحفظ", "error");
+            }
         }
 
         async function loadSettings() {
-            const res = await fetch("/get-settings");
-            const data = await res.json();
+            try {
+                const res = await fetch(`/get-settings/${client_id}`, {
+                    method: "GET",
+                    credentials: "same-origin"
+                });
 
-            document.getElementById("whatsapp").value = data.whatsapp || "";
-            document.getElementById("register").value = data.register || "";
-            document.getElementById("welcome").value = data.welcome || "";
-            document.getElementById("questions").value = data.questions || "";
-            document.getElementById("courses").value = data.courses || "";
+                const data = await res.json();
+
+                document.getElementById("whatsapp").value = data.whatsapp || "";
+                document.getElementById("register").value = data.register || "";
+                document.getElementById("welcome").value = data.welcome || "";
+                document.getElementById("questions").value = data.questions || "";
+                document.getElementById("courses").value = data.courses || "";
+            } catch (error) {
+                showAdminMessage("صار خطأ أثناء تحميل الإعدادات", "error");
+            }
         }
 
         document.getElementById("excelFile").addEventListener("change", handleFile);
@@ -172,8 +305,8 @@
                     result += "📚 " + (row["اسم الدورة"] || "دورة") + "\n";
                     result += "يبدأ في: " + (row["يبدأ في"] || "") + "\n";
                     result += "ينتهي في: " + (row["ينتهي في"] || "") + "\n";
-                    result += "التكلفة: " + (row["التلكلفة للمتدرب"] || "") + "\n";
-                    result += "الوقت: " + (row["وقت الدورة  الفترة الصباحية"] || "") + "\n";
+                    result += "التكلفة: " + (row["التلكلفة للمتدرب"] || row["التكلفة للمتدرب"] || "") + "\n";
+                    result += "الوقت: " + (row["وقت الدورة  الفترة الصباحية"] || row["وقت الدورة"] || "") + "\n";
                     result += "عدد المسجلين: " + (row["عدد المسجلين"] || "") + "\n\n";
                 });
 
@@ -182,6 +315,14 @@
 
             reader.readAsArrayBuffer(file);
         }
+
+        document.getElementById("pass").addEventListener("keydown", function (event) {
+            if (event.key === "Enter") {
+                login();
+            }
+        });
+
+        checkAuthStatus();
     </script>
 
 </body>

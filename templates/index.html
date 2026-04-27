@@ -111,16 +111,10 @@
             color: white;
         }
 
-        .stats-btn {
-            background: #0f172a;
-            color: white;
-        }
-
         .bottom-actions {
             padding: 10px;
             display: flex;
             gap: 10px;
-            flex-wrap: wrap;
         }
     </style>
 </head>
@@ -131,16 +125,15 @@
         <div class="chat-card">
 
             <div class="chat-header">
-                <h1>مساعد جمعية المهندسين الكويتية</h1>
-                <p>اسأل عن الدورات والتخصصات</p>
+                <h1>مساعد ذكي</h1>
+                <p>اسأل عن الدورات</p>
             </div>
 
             <div id="chatBox" class="chat-box"></div>
             <div class="quick-questions" id="quickQuestions"></div>
 
             <div class="bottom-actions">
-                <button class="clear-btn" onclick="clearChat()">مسح المحادثة</button>
-                <button class="stats-btn" onclick="showStats()">عرض الإحصائيات</button>
+                <button class="clear-btn" onclick="clearChat()">مسح</button>
             </div>
 
             <div class="input-area">
@@ -156,6 +149,7 @@
         const input = document.getElementById("q");
         let appSettings = {};
 
+        // 🔥 يحدد العميل من الرابط
         let client_id = window.location.pathname.split("/").pop();
 
         if (!client_id || client_id === "" || client_id === "client") {
@@ -166,11 +160,8 @@
             try {
                 const res = await fetch(`/get-settings/${client_id}`);
                 appSettings = await res.json();
-            } catch (error) {
-                appSettings = {
-                    welcome: "أهلاً فيك 👋",
-                    questions: ""
-                };
+            } catch {
+                appSettings = { welcome: "أهلاً فيك 👋", questions: "" };
             }
         }
 
@@ -201,12 +192,11 @@
                 const data = await res.json();
 
                 chatBox.removeChild(chatBox.lastChild);
-
                 addMessage(data.reply || "ماكو رد", "bot");
 
-            } catch (err) {
+            } catch {
                 chatBox.removeChild(chatBox.lastChild);
-                addMessage("صار خطأ بالاتصال", "bot");
+                addMessage("صار خطأ", "bot");
             }
         }
 
@@ -215,36 +205,25 @@
             addMessage(appSettings.welcome || "أهلاً فيك 👋", "bot");
         }
 
-        function showStats() {
-            alert("ميزة الإحصائيات شغالة");
-        }
-
         function loadQuickQuestions() {
             const container = document.getElementById("quickQuestions");
             container.innerHTML = "";
 
-            const data = appSettings.questions;
-
-            const questions = data && data.trim()
-                ? data.split("\n").filter(q => q.trim())
-                : ["شنو الدورات هذا الشهر؟", "دورات الكهرباء", "دورات المباني"];
+            const questions = appSettings.questions
+                ? appSettings.questions.split("\n")
+                : [];
 
             questions.forEach(q => {
                 const btn = document.createElement("button");
                 btn.className = "quick-btn";
-                btn.textContent = q.trim();
-                btn.onclick = () => {
-                    input.value = q.trim();
-                    input.focus();
-                };
+                btn.textContent = q;
+                btn.onclick = () => input.value = q;
                 container.appendChild(btn);
             });
         }
 
-        input.addEventListener("keydown", function (event) {
-            if (event.key === "Enter") {
-                ask();
-            }
+        input.addEventListener("keydown", e => {
+            if (e.key === "Enter") ask();
         });
 
         async function startApp() {
